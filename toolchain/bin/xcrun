@@ -1,0 +1,42 @@
+#!/bin/bash
+# Linux stand-in for Apple's xcrun, enough for XNU's makefiles:
+#   xcrun [-sdk SDK] -show-sdk-path | -show-sdk-platform-path | -show-sdk-version
+#   xcrun [-sdk SDK] -find TOOL
+#   xcrun [-sdk SDK] TOOL args...      (run it)
+T=$(cd "$(dirname "$0")/.." && pwd)
+sdk=${SDKROOT:-$T/sdk}
+while [ $# -gt 0 ]; do
+	case $1 in
+	-sdk) [ -d "$2" ] && sdk=$2; shift 2 ;;
+	-verbose|-v|-l|-log|-n|-no-cache) shift ;;
+	-show-sdk-path) echo "$sdk"; exit 0 ;;
+	-show-sdk-platform-path) echo "$T/MacOSX.platform"; exit 0 ;;
+	-show-sdk-version) echo "${XCROSS_SDKVER:-10.13}"; exit 0 ;;
+	-show-sdk-build-version) echo "17G14019"; exit 0 ;;
+	-find|-f) find=1; shift ;;
+	*) break ;;
+	esac
+done
+tool=$1
+shift || true
+case $tool in
+	clang|cc|gcc)     path=$T/bin/darwin-clang ;;
+	clang++|c++|g++)  path=$T/bin/darwin-clang++ ;;
+	ld)               path=$T/bin/darwin-ld ;;
+	mig|migcom)       path=$T/mig/$tool ;;
+	plutil)           path=$T/bin/noop ;;
+	strip)            path=$T/bin/strip-apple; [ -x "$path" ] || path=$(command -v llvm-strip) ;;   # llvm-strip refuses the kernel ("shared library is not yet supported")
+	lipo)             path=$(command -v llvm-lipo) ;;
+	nm)               path=$(command -v llvm-nm) ;;
+	libtool)          path=$(command -v llvm-libtool-darwin) ;;
+	dsymutil)         path=$(command -v dsymutil) ;;
+	unifdef)          path=$(command -v unifdef) ;;
+	flex|bison)       path=$(command -v "$tool") ;;
+	gm4|m4)           path=$(command -v m4) ;;
+	iig)              path=$T/bin/iig ;;
+	ctfconvert|ctfmerge|ctf_insert|nmedit|codesign_allocate)
+	                  path=$T/bin/noop ;;
+	*) echo "xcrun: unknown tool '$tool'" >&2; exit 1 ;;
+esac
+[ -n "${find:-}" ] && { echo "$path"; exit 0; }
+exec "$path" "$@"

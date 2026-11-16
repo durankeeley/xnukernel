@@ -217,6 +217,23 @@ boolean_t cpuid_tsx_disabled = false;   /* true if XNU disabled TSX */
 boolean_t cpuid_tsx_supported = false;
 
 static void do_cwas(i386_cpu_info_t *cpuinfo, boolean_t on_slave);
+
+/*
+ * xcross: AMD K8/K10 support. The vendor is read straight from CPUID (the cached info is not filled in yet when
+ * cpuid_set_generic_info() runs). AMD CPUs are presented to the rest of the kernel as Penryn-class Intel parts
+ * (no leaf 4/7, no XSAVE, no Intel-only MSRs).
+ */
+boolean_t
+cpuid_vendor_is_amd(void)
+{
+	static int cached = -1;
+	if (cached < 0) {
+		uint32_t r[4];
+		do_cpuid(0, r);
+		cached = (r[ebx] == 0x68747541 && r[ecx] == 0x444D4163 && r[edx] == 0x69746E65) ? 1 : 0;
+	}
+	return cached == 1;
+}
 static void cpuid_do_precpuid_was(void);
 
 static void cpuid_vmm_detect_pv_interface(i386_vmm_info_t *info_p, const char *signature,
@@ -656,10 +673,15 @@ cpuid_set_generic_info(i386_cpu_info_t *info_p)
 	 * and bracket this with the approved procedure for reading the
 	 * the microcode version number a.k.a. signature a.k.a. BIOS ID
 	 */
-	wrmsr64(MSR_IA32_BIOS_SIGN_ID, 0);
-	cpuid_fn(1, reg);
-	info_p->cpuid_microcode_version =
-	    (uint32_t) (rdmsr64(MSR_IA32_BIOS_SIGN_ID) >> 32);
+	if (cpuid_vendor_is_amd()) {
+		cpuid_fn(1, reg);
+		info_p->cpuid_microcode_version = 0;
+	} else {
+		wrmsr64(MSR_IA32_BIOS_SIGN_ID, 0);
+		cpuid_fn(1, reg);
+		info_p->cpuid_microcode_version =
+		    (uint32_t) (rdmsr64(MSR_IA32_BIOS_SIGN_ID) >> 32);
+	}
 	info_p->cpuid_signature = reg[eax];
 	info_p->cpuid_stepping  = bitfield32(reg[eax], 3, 0);
 	info_p->cpuid_model     = bitfield32(reg[eax], 7, 4);
@@ -671,7 +693,7 @@ cpuid_set_generic_info(i386_cpu_info_t *info_p)
 	info_p->cpuid_features  = quad(reg[ecx], reg[edx]);
 
 	/* Get "processor flag"; necessary for microcode update matching */
-	info_p->cpuid_processor_flag = (rdmsr64(MSR_IA32_PLATFORM_ID) >> 50) & 0x7;
+	info_p->cpuid_processor_flag = cpuid_vendor_is_amd() ? 1 : ((rdmsr64(MSR_IA32_PLATFORM_ID) >> 50) & 0x7);
 
 	/* Fold extensions into family/model */
 	if (info_p->cpuid_family == 0x0f || info_p->cpuid_family == 0x06) {
@@ -956,6 +978,10 @@ cpuid_set_info(void)
 
 	cpuid_set_generic_info(info_p);
 
+	/* xcross: an AMD CPU is presented as Penryn so every later switch on cpuid_cpufamily takes the oldest (leaf-4-less) path */
+	if (cpuid_vendor_is_amd()) {
+		info_p->cpuid_cpufamily = CPUFAMILY_INTEL_PENRYN;
+	} else
 	/* verify we are running on a supported CPU */
 	if ((strncmp(CPUID_VID_INTEL, info_p->cpuid_vendor,
 	    min(strlen(CPUID_STRING_UNKNOWN) + 1,
@@ -982,6 +1008,13 @@ cpuid_set_info(void)
 	} else {
 		info_p->cpuid_cpu_subtype = CPU_SUBTYPE_X86_ARCH1;
 	}
+	/*
+	 * xcross: Tahoe ships only the Haswell (x86_64h) dyld shared cache and system binaries, so an AMD K8/K10 part has to report
+	 * x86_64h or dyld finds no cache. The Haswell-only instructions (AVX/AVX2/FMA/BMI...) then trap with #UD and are emulated by OPEMU.
+	 */
+	if (cpuid_vendor_is_amd() && enable_x86_64h) {
+		info_p->cpuid_cpu_subtype = CPU_SUBTYPE_X86_64_H;
+	}
 	/* cpuid_set_cache_info must be invoked after set_generic_info */
 
 	/*
@@ -992,7 +1025,18 @@ cpuid_set_info(void)
 	/*
 	 * Not all VMMs emulate MSR_CORE_THREAD_COUNT (0x35).
 	 */
-	if (0 != (info_p->cpuid_features & CPUID_FEATURE_VMM) &&
+	if (cpuid_vendor_is_amd()) {
+		cpuid_set_cache_info(info_p);   /* no leaf 4 on K8/K10: falls back to the 0x80000006 L2 data */
+		/* no HTT on K8/K10; the core count is CPUID 0x80000008 ECX[7:0] + 1 */
+		uint32_t xr[4] = { 0, 0, 0, 0 };
+		if (info_p->cpuid_max_ext >= 0x80000008) {
+			cpuid_fn(0x80000008, xr);
+		}
+		info_p->cpuid_cores_per_package = bitfield32(xr[ecx], 7, 0) + 1;
+		info_p->cpuid_logical_per_package = info_p->cpuid_cores_per_package;
+		info_p->core_count   = info_p->cpuid_cores_per_package;
+		info_p->thread_count = info_p->cpuid_logical_per_package;
+	} else if (0 != (info_p->cpuid_features & CPUID_FEATURE_VMM) &&
 	    PE_parse_boot_argn("-nomsr35h", NULL, 0)) {
 		info_p->core_count = 1;
 		info_p->thread_count = 1;
@@ -1519,6 +1563,10 @@ cpuid_wa_required(cpu_wa_e wa)
 	static uint64_t bootarg_cpu_wa_disables = 0;
 	static int bootargs_overrides_processed = 0;
 	uint32_t        reg[4];
+
+	if (cpuid_vendor_is_amd()) {
+		return CWA_OFF;   /* xcross: the CWAs are Intel micro-architectural workarounds (leaf 7 / Intel MSRs) */
+	}
 
 	if (!bootargs_overrides_processed) {
 		if (!PE_parse_boot_argn("cwae", &bootarg_cpu_wa_enables, sizeof(bootarg_cpu_wa_enables))) {

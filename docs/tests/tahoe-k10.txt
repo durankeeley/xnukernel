@@ -1,0 +1,20 @@
+# Tahoe on k10 (2026-11-16)
+qemu cpu: phenom,family=16,model=4,stepping=2,vendor=AuthenticAMD,kvm=off
+ProductName:		macOS
+ProductVersion:		26.7.3
+BuildVersion:		25G342
+Darwin XNUs-iMac.local 25.5.0 Darwin Kernel Version 25.5.0: Mon 16 Nov 2026 09:06:44 NZDT; durankeeley:xnu_development-xcross-k10/DEVELOPMENT_X86_64 x86_64
+machdep.cpu.brand_string: AMD Phenom(tm) 9550 Quad-Core Processor
+machdep.cpu.vendor: AuthenticAMD
+machdep.cpu.family: 16
+machdep.cpu.model: 4
+machdep.cpu.features: FPU VME DE PSE TSC MSR PAE MCE CX8 APIC SEP MTRR PGE MCA CMOV PAT PSE36 CLFSH MMX FXSR SSE SSE2 HTT SSE3 CX16 x2APIC POPCNT VMM
+hw.cpusubtype: 8
+hw.ncpu: 4
+20:05  up 5 mins, 0 users, load averages: 37.49 22.27 10.10
+[exit 0]
+      1 OPEMU: ssse3 mode=auto cpu=lacks -> EMULATE
+      1 OPEMU: sse42 mode=auto cpu=lacks -> EMULATE
+      1 OPEMU: sse41 mode=auto cpu=lacks -> EMULATE
+      1 OPEMU: sse3  mode=auto cpu=has -> do not emulate
+      1 OPEMU:  add [rax], al  [rip=7ff80bf1ab84 bytes=00 00 00 00 00 00 00 00]

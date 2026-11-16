@@ -191,7 +191,7 @@ const static struct mac_policy_ops policy_ops = {
 	.mpo_reserved13 = (mpo_reserved_hook_t *)common_hook,
 	.mpo_reserved14 = (mpo_reserved_hook_t *)common_hook,
 	.mpo_reserved15 = (mpo_reserved_hook_t *)common_hook,
-	.mpo_reserved16 = (mpo_reserved_hook_t *)common_hook,
+	CHECK_SET_HOOK(vnode_notify_end_rename_swap)
 	.mpo_reserved17 = (mpo_reserved_hook_t *)common_hook,
 	.mpo_reserved18 = (mpo_reserved_hook_t *)common_hook,
 	CHECK_SET_HOOK(vnode_notify_will_rename_swap)

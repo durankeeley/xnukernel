@@ -1282,7 +1282,10 @@ fpinit(void)
 	fldcw(control);
 #endif
 	/* Initialize SSE/SSE2 */
-	__builtin_ia32_ldmxcsr(0x1f80);
+	{ /* xcross: kernel is built -mno-sse, so use asm instead of the builtin */
+		uint32_t mxcsr_init = 0x1f80;
+		__asm__ volatile ("ldmxcsr %0" : : "m" (mxcsr_init));
+	}
 	if (fpu_YMM_capable) {
 		vzeroall();
 	} else {

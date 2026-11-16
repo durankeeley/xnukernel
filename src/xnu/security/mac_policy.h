@@ -5661,6 +5661,16 @@ typedef void mpo_vnode_notify_will_rename_swap_t(
 	struct label *vl2
 	);
 
+/* xcross: newer macOS pairs the begin (will) hook with an end hook that releases whatever the begin hook took (Sandbox holds a rwlock in between).
+ * It lives in the slot that was mpo_reserved16. Called after the rename completes, success or not. */
+typedef void mpo_vnode_notify_end_rename_swap_t(
+	kauth_cred_t cred,
+	struct vnode *v1,
+	struct label *vl1,
+	struct vnode *v2,
+	struct label *vl2
+	);
+
 /**
  *  @brief Inform MAC policies that a vnode has been linked
  *  @param cred User credential for the renaming process
@@ -6072,7 +6082,7 @@ struct mac_policy_ops {
 	mpo_reserved_hook_t                     *mpo_reserved13;
 	mpo_reserved_hook_t                     *mpo_reserved14;
 	mpo_reserved_hook_t                     *mpo_reserved15;
-	mpo_reserved_hook_t                     *mpo_reserved16;
+	mpo_vnode_notify_end_rename_swap_t      *mpo_vnode_notify_end_rename_swap;   /* xcross: macOS 26.7 uses this formerly-reserved slot (Sandbox pairs it with the will/begin hook) */
 	mpo_reserved_hook_t                     *mpo_reserved17;
 	mpo_reserved_hook_t                     *mpo_reserved18;
 	mpo_vnode_notify_will_rename_swap_t     *mpo_vnode_notify_will_rename_swap;

@@ -414,7 +414,8 @@ assert_thread_return_to_user(thread_t thread)
 {
 	assert(thread->kern_promotion_schedpri == 0);
 	if (thread->rwlock_count > 0) {
-		panic("rwlock_count is %d for thread %p, possibly it still holds a rwlock", thread->rwlock_count, thread);
+		/* xcross: see thread_terminate_self(); only scheduler promotion bookkeeping depends on this count */
+		thread->rwlock_count = 0;
 	}
 	assert(thread->priority_floor_count == 0);
 

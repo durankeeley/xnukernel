@@ -118,3 +118,22 @@ osfmk/i386/panic_notify.c	standard
 osfmk/x86_64/machine_remote_time.c 		optional config_mach_bridge_send_time
 osfmk/x86_64/counter.c		standard
 osfmk/x86_64/static_if.c	standard
+
+# OPEMU (AMD K8/K10 opcode emulator, from the High Sierra AMD tree)
+osfmk/OPEMU/opemu.c		standard
+osfmk/OPEMU/opemu_math.c	standard
+osfmk/OPEMU/opemu_fast.c	standard
+osfmk/OPEMU/opemu_policy.c	standard
+osfmk/OPEMU/opemu_util.c	standard
+osfmk/OPEMU/opemu_avx.c		standard
+osfmk/OPEMU/opemu_avx_glue.c	standard
+osfmk/OPEMU/opemu_avx_fp.c	standard
+osfmk/OPEMU/sse41.c		standard
+osfmk/OPEMU/ssse3.c		standard
+osfmk/OPEMU/sse42.c		standard
+osfmk/OPEMU/sse3.c		standard
+osfmk/OPEMU/libudis86/decode.c	standard
+osfmk/OPEMU/libudis86/itab.c	standard
+osfmk/OPEMU/libudis86/syn.c	standard
+osfmk/OPEMU/libudis86/syn-intel.c	standard
+osfmk/OPEMU/libudis86/udis86.c	standard

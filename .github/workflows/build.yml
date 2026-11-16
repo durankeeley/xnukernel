@@ -1,0 +1,71 @@
+# Builds the Tahoe kernel (xnu-12377.121.6) for an Intel baseline and for AMD K8 and K10 class CPUs, and publishes the result as a release.
+#   - every push to this branch and every manual run builds and keeps the kernels as workflow artifacts
+#   - pushing a tag named tahoe-v* (for example tahoe-v0.1) also creates a GitHub release with the packages attached
+# The job runs in an Arch Linux container because that is the environment the build was developed and checked in (REQUIREMENTS.md).
+name: build-kernel
+on:
+  push:
+    branches: [tahoe]
+    tags: ['tahoe-v*']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    container: archlinux:latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: k8,    march: k8-sse3, obj: xnu-tahoe-k8,  objroot: xnu_development-xcross-k8/DEVELOPMENT_X86_64 }   # AMD K8 (OPEMU emulates SSSE3, SSE4 and AVX)
+          - { name: k10,   march: amdfam10, obj: xnu-tahoe-k10, objroot: xnu_development-xcross-k10/DEVELOPMENT_X86_64 }  # AMD K10 (Phenom II)
+          - { name: intel, march: '',       obj: xnu-tahoe,     objroot: xnu_development-xcross/DEVELOPMENT_X86_64 }       # Intel
+    steps:
+      - name: Install packages
+        run: |
+          pacman -Syu --noconfirm --needed base-devel git clang llvm lld make bison flex m4 perl python unifdef libbsd libdispatch util-linux-libs ncurses xz
+      - uses: actions/checkout@v4
+      - name: Bootstrap (fetch dependencies, build ld64, strip, tcsh, MIG, SDK headers, firehose)
+        run: scripts/bootstrap.sh
+      - name: Build the kernel
+        run: XCROSS_MARCH='${{ matrix.march }}' XNU_OBJ='${{ matrix.obj }}' KERNEL_BUILD_OBJROOT='${{ matrix.objroot }}' scripts/xnu-make.sh -Otarget -j"$(nproc)"   # the objroot decides the variant suffix kernelmanagerd sees
+      - name: Package
+        run: |
+          O=build/${{ matrix.obj }}/obj/RELEASE_X86_64
+          test -s "$O/kernel" && test -s "$O/kernel.unstripped"
+          P=xnu-tahoe-${{ matrix.name }}
+          mkdir -p "$P"
+          cp "$O/kernel" "$O/kernel.unstripped" "$P/"
+          {
+            echo "branch:   tahoe (xnu-12377.121.6, macOS 26 Tahoe)"
+            echo "variant:  ${{ matrix.name }} (XCROSS_MARCH='${{ matrix.march }}')"
+            echo "commit:   $GITHUB_SHA"
+            echo "built:    $(date -u +%FT%TZ)"
+            echo "clang:    $(clang --version | head -1)"
+            echo "version:  $(strings -a "$P/kernel" | grep -m1 'Darwin Kernel Version')"
+          } > "$P/BUILD-INFO.txt"
+          cp docs/BARE-METAL.md "$P/BARE-METAL.md"
+          (cd "$P" && sha256sum kernel kernel.unstripped > SHA256SUMS)
+          tar -cJf "$P.tar.xz" "$P"
+          sha256sum "$P.tar.xz" > "$P.tar.xz.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xnu-tahoe-${{ matrix.name }}
+          path: |
+            xnu-tahoe-${{ matrix.name }}.tar.xz
+            xnu-tahoe-${{ matrix.name }}.tar.xz.sha256
+  release:
+    if: startsWith(github.ref, 'refs/tags/tahoe-v')
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" dist/* --repo "$GITHUB_REPOSITORY" --title "${GITHUB_REF_NAME}" --notes "xnu-12377.121.6 (macOS 26 Tahoe) kernels built by CI from ${GITHUB_SHA}. Each package holds the stripped kernel, kernel.unstripped (for gdb), BUILD-INFO.txt and SHA256SUMS. Tested only in QEMU on an Intel host, never on real AMD hardware. Tahoe boots from kernel collections: the install steps are in README.md and docs/BARE-METAL.md."

@@ -651,7 +651,23 @@ SYSCTL_INT(_debug, OID_AUTO, sched, CTLFLAG_RW | CTLFLAG_LOCKED, &sched_debug_fl
 #if (DEBUG || DEVELOPMENT)
 extern boolean_t doprnt_hide_pointers;
 SYSCTL_INT(_debug, OID_AUTO, hide_kernel_pointers, CTLFLAG_RW | CTLFLAG_LOCKED, &doprnt_hide_pointers, 0, "hide kernel pointers from log");
+
 #endif
+
+/* xcross debugging aid: dump blocked-thread kernel stacks to the serial console (value = pid, 0 = all); see osfmk/kern/xcross_dump.c */
+extern void xcross_dump_threads(int pid_filter);
+static int
+sysctl_xcross_dump(__unused struct sysctl_oid *oidp, __unused void *arg1, __unused int arg2, struct sysctl_req *req)
+{
+	int v = 0, changed = 0;
+	int err = sysctl_io_number(req, 0, sizeof(v), &v, &changed);
+	if (!err && changed) {
+		xcross_dump_threads(v);
+	}
+	return err;
+}
+SYSCTL_PROC(_debug, OID_AUTO, xcross_dump, CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_LOCKED, 0, 0, sysctl_xcross_dump, "I", "dump blocked-thread kernel stacks (pid, 0 = all)");
+
 
 
 extern int get_kernel_symfile(proc_t, char **);

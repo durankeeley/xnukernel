@@ -68,6 +68,8 @@
 #include <i386/trap_internal.h>
 #include <i386/pmap.h>
 #include <i386/fpu.h>
+#include <i386/cpuid.h>
+#include <OPEMU/opemu.h>
 #include <i386/panic_notify.h>
 #include <i386/lapic.h>
 
@@ -825,6 +827,10 @@ kernel_trap(
 		if (handle_kernel_breakpoint(saved_state, &reason, &trapcomment)) {
 			goto common_return;
 		}
+		/* xcross: AMD K8/K10 - emulate SSSE3/SSE4 in kernel code too (kexts compiled for Intel) */
+		if (cpuid_vendor_is_amd() && opemu_ktrap(state)) {
+			goto common_return;
+		}
 		fpUDflt(kern_ip);
 		goto debugger_entry;
 
@@ -915,6 +921,26 @@ FALL_THROUGH:
 		if ((rp != NULL) || (rp = find_recovery_entry(kern_ip))) {
 			set_recovery_ip(saved_state, rp->recover_addr);
 			goto common_return;
+		}
+
+		/*
+		 * xcross: AMD K8/K10 do not implement many Intel-only MSRs (Intel kexts and kernel paths read them): a #GP on
+		 * RDMSR returns 0, on WRMSR is ignored (both opcodes are 2 bytes: 0F 32 / 0F 30).
+		 */
+		if (type == T_GENERAL_PROTECTION && cpuid_vendor_is_amd() && kern_ip >= VM_MIN_KERNEL_ADDRESS) {
+			uint16_t op = *(uint16_t *)kern_ip;
+			if (op == 0x320f || op == 0x300f) {
+				static unsigned msr_log;
+				if (msr_log++ < 64) {
+					printf("[MSR] unimplemented %s(0x%x) ignored\n", op == 0x320f ? "rdmsr" : "wrmsr", (unsigned)saved_state->rcx);
+				}
+				if (op == 0x320f) {
+					saved_state->rax = 0;
+					saved_state->rdx = 0;
+				}
+				saved_state->isf.rip += 2;
+				goto common_return;
+			}
 		}
 
 		/*
@@ -1238,6 +1264,10 @@ user_trap(
 		break;
 
 	case T_INVALID_OPCODE:
+		/* xcross: AMD K8/K10 - emulate SSSE3/SSE4/POPCNT/CRC32... (opemu_utrap does not return) */
+		if (cpuid_vendor_is_amd()) {
+			opemu_utrap(saved_state);
+		}
 		if (fpUDflt(rip) == 1) {
 			exc = EXC_BAD_INSTRUCTION;
 			code = EXC_I386_INVOP;

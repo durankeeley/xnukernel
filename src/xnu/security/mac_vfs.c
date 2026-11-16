@@ -2926,6 +2926,31 @@ mac_vnode_notify_will_rename_swap(vfs_context_t ctx,
 }
 
 void
+mac_vnode_notify_end_rename_swap(vfs_context_t ctx, struct vnode *fvp, struct vnode *tvp)
+{
+	kauth_cred_t cred;
+
+#if SECURITY_MAC_CHECK_ENFORCE
+	if (!mac_vnode_enforce) {
+		return;
+	}
+#endif
+	cred = vfs_context_ucred(ctx);
+	if (!mac_cred_check_enforce(cred)) {
+		return;
+	}
+
+	/* xcross: must mirror mac_vnode_notify_will_rename_swap(): policies (Sandbox) take a lock there and drop it here. */
+	MAC_POLICY_ITERATE({
+		/* BEGIN IGNORE CODESTYLE */
+		if (mpc->mpc_ops->mpo_vnode_notify_end_rename_swap != NULL) {
+			mpc->mpc_ops->mpo_vnode_notify_end_rename_swap(cred, fvp, mac_vnode_label(fvp), tvp, mac_vnode_label(tvp));
+		}
+		/* END IGNORE CODESTYLE */
+	});
+}
+
+void
 mac_vnode_notify_rename_swap(vfs_context_t ctx, struct vnode *fdvp,
     struct vnode *fvp, struct componentname *fcnp, struct vnode *tdvp,
     struct vnode *tvp, struct componentname *tcnp)

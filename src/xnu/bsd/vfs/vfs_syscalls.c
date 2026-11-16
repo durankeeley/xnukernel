@@ -10026,6 +10026,13 @@ skipped_lookup:
 	    tdvp, &tvp, &tond->ni_cnd, tvap,
 	    flags, ctx);
 
+#if CONFIG_MACF
+	if (ISSET(flags, VFS_RENAME_SWAP)) {
+		/* xcross: pairs with mac_vnode_notify_will_rename_swap() above (macOS 26.7 Sandbox releases its lock here) */
+		mac_vnode_notify_end_rename_swap(ctx, fvp, tvp);
+	}
+#endif
+
 	if (locked_vp) {
 		vnode_link_unlock(fvp);
 		locked_vp = NULLVP;

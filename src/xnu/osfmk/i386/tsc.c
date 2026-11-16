@@ -132,6 +132,35 @@ EFI_get_frequency(const char *prop)
 }
 
 /*
+ * xcross: measure the TSC against PIT channel 2 (1.193182 MHz) for 20 ms. Used when the firmware
+ * gives no CPUFrequency and the CPU is a virtual one (QEMU), where the P-state MSRs read zero.
+ * Same code as the High Sierra branch.
+ */
+static uint64_t
+tsc_calibrate_pit(void)
+{
+	const uint16_t count = 23864;           /* 20 ms at 1193182 Hz */
+	uint64_t t0, t1, freq;
+	uint32_t spin;
+
+	outb(0x61, (inb(0x61) & ~0x02) | 0x01); /* gate on, speaker off */
+	outb(0x43, 0xB0);                       /* ch2, lobyte/hibyte, mode 0 */
+	outb(0x42, count & 0xff);
+	outb(0x42, count >> 8);
+	t0 = rdtsc64();
+	for (spin = 0; spin < 50000000 && !(inb(0x61) & 0x20); spin++) {
+		;
+	}
+	t1 = rdtsc64();
+	if (spin >= 50000000) {
+		return 0;
+	}
+	freq = (t1 - t0) * 1193182ULL / count;
+	kprintf("tsc_calibrate_pit: TSC %llu Hz\n", freq);
+	return (freq > 100 * Mega && freq < 20 * Giga) ? freq : 0;
+}
+
+/*
  * Initialize the various conversion factors needed by code referencing
  * the TSC.
  */
@@ -164,6 +193,39 @@ tsc_init(void)
 		}
 	}
 
+	if (cpuid_vendor_is_amd()) {
+		/*
+		 * xcross: AMD K8/K10. Firmware (OpenCore / SMBIOS) normally publishes FSBFrequency and CPUFrequency; otherwise derive the
+		 * ratio from the P-state registers: family 0Fh FIDVID_STATUS (0xC0010042), family 10h P-state 0 (0xC0010064), where
+		 * freq = 100 MHz * (CpuFid + 0x10) / 2^CpuDid and the reference clock is 200 MHz. The TSC runs at the P0 rate.
+		 */
+		uint64_t cpuFreq = EFI_get_frequency("CPUFrequency");
+		boolean_t calibrated = FALSE;
+		busFreq = EFI_get_frequency("FSBFrequency");
+		if (busFreq == 0) {
+			busFreq = 200 * Mega;
+		}
+		if (cpuFreq == 0 && cpuid_vmm_present()) {
+			cpuFreq = tsc_calibrate_pit();
+			calibrated = (cpuFreq != 0);
+		}
+		if (cpuFreq != 0) {
+			tscGranularity = cpuFreq / busFreq;
+		} else if (!cpuid_vmm_present() && cpuid_family() == 0x10) {
+			uint64_t ps = rdmsr64(0xC0010064);
+			uint32_t fid = (uint32_t)bitfield(ps, 5, 0), did = (uint32_t)bitfield(ps, 8, 6);
+			tscGranularity = ((uint64_t)(fid + 0x10) * 100 * Mega >> did) / busFreq;
+		} else if (!cpuid_vmm_present() && cpuid_family() == 0xF) {
+			uint64_t fv = rdmsr64(0xC0010042);
+			tscGranularity = ((bitfield(fv, 5, 0) + 4) * 100 * Mega) / busFreq;
+		}
+		if (tscGranularity == 0) {
+			tscGranularity = 15;   /* 3 GHz on a 200 MHz reference */
+		}
+		if (calibrated) {
+			busFreq = cpuFreq / tscGranularity;   /* keeps tscFreq equal to the measured rate */
+		}
+	} else
 	switch (cpuid_cpufamily()) {
 	case CPUFAMILY_INTEL_KABYLAKE:
 	case CPUFAMILY_INTEL_ICELAKE:

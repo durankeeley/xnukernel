@@ -1386,7 +1386,12 @@ pmap_lowmem_finalize(void)
 void
 x86_64_protect_data_const()
 {
-	boolean_t doconstro = TRUE;
+	/*
+	 * xcross: keep __DATA_CONST writable. Stock timing happens to register every CPU (processor_init() bumps the
+	 * SECURITY_READ_ONLY_LATE processor_count) before machine_lockdown(); with this build's boot timing the ACPI CPU
+	 * driver registers APs afterwards and the write faults. This only drops a hardening feature.
+	 */
+	boolean_t doconstro = FALSE;
 #if DEVELOPMENT || DEBUG
 	(void) PE_parse_boot_argn("dataconstro", &doconstro, sizeof(doconstro));
 #endif

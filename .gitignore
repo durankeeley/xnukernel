@@ -1,0 +1,25 @@
+# generated or fetched, not tracked
+/build/
+/out/
+/src/*
+!/src/xnu
+/toolchain/*
+!/toolchain/bin/
+/toolchain/bin/*
+!/toolchain/bin/xcrun
+!/toolchain/bin/darwin-clang
+!/toolchain/bin/darwin-clang++
+!/toolchain/bin/darwin-ld
+!/toolchain/bin/host-cc
+!/toolchain/bin/install
+!/toolchain/bin/noop
+!/toolchain/bin/iig
+!/toolchain/host-compat/
+!/toolchain/host-shim/
+!/toolchain/sdk-seed/
+!/toolchain/patches/
+!/toolchain/tahoe-stubs/
+scripts/qemu-plugin/*.so
+scripts/opemu-hosttest/imm.inc
+*.log
+__pycache__/

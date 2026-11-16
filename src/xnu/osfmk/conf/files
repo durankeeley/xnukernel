@@ -199,6 +199,7 @@ osfmk/kern/test_lock.c		optional debug
 osfmk/kern/test_mpsc_queue.c	optional development
 osfmk/kern/test_mpsc_queue.c	optional debug
 osfmk/kern/thread.c			standard
+osfmk/kern/xcross_dump.c		standard
 osfmk/kern/thread_act.c		standard
 osfmk/kern/thread_call.c	standard
 osfmk/kern/thread_group.c	standard

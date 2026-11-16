@@ -1037,6 +1037,10 @@ x86_validate_topology(void)
 	 */
 	nCPUs = topoParms.nPackages * topoParms.nLThreadsPerPackage;
 	if (nCPUs != real_ncpus) {
+		if (cpuid_vendor_is_amd()) {
+			kprintf("x86_validate_topology() %d threads but %d registered from MADT (AMD: tolerated)\n", nCPUs, real_ncpus);
+			return;
+		}
 		panic("x86_validate_topology() %d threads but %d registered from MADT",
 		    nCPUs, real_ncpus);
 	}

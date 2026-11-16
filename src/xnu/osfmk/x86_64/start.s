@@ -106,7 +106,7 @@ EXT(mc_task_stack_end):
 
 	/* Must not clobber EDI */
 #define SWITCH_TO_64BIT_MODE					 \
-	movl	$(CR4_PAE),%eax		/* enable PAE */	;\
+	movl	$(CR4_PAE|CR4_OSFXS|CR4_OSXMM),%eax	/* enable PAE; xcross: also SSE, since clang 23 emits SSE in early boot code */	;\
 	movl	%eax,%cr4					;\
 	movl    $MSR_IA32_EFER,%ecx				;\
 	rdmsr							;\

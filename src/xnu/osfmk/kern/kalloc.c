@@ -1535,6 +1535,23 @@ kalloc_type_apply_policy(
 	uint16_t            kt_zones_type[MAX_K_ZONE(kt_zone_cfg)],
 	uint16_t            zone_budget)
 {
+	/*
+	 * xcross: without Apple clang's __builtin_xnu_type_summary every view is classified data-only, so there are no
+	 * signature views to distribute zones over (the divisions below would fault on 0). Nothing to do then.
+	 */
+	{
+		bool any = false;
+		for (uint16_t i = 0; i < MAX_K_ZONE(kt_zone_cfg); i++) {
+			kt_zones_sig[i] = 0;
+			kt_zones_type[i] = 0;
+			if (freq_list[i] != 0 || freq_total_list[i] != 0) {
+				any = true;
+			}
+		}
+		if (!any) {
+			return 0;
+		}
+	}
 	uint16_t zbudget_sig = (uint16_t) ((7 * zone_budget) / 10);
 	uint16_t zbudget_type = zone_budget - zbudget_sig;
 	uint16_t wasted_zones = 0;
@@ -1989,6 +2006,14 @@ kalloc_type_view_init_var(void)
 	 */
 	kt_count = kalloc_type_view_parse(KTV_VAR);
 	assert(kt_count < UINT32_MAX);
+
+	/*
+	 * xcross: without Apple clang's type-signature builtins every view is treated as data-only and redirected while
+	 * parsing, so there may be nothing left to sort/assign (kt_buffer[0] would be NULL below).
+	 */
+	if (kt_count == 0) {
+		return;
+	}
 
 #if MACH_ASSERT
 	vm_size_t sig_slist_size = (size_t) kt_count * sizeof(uint32_t);

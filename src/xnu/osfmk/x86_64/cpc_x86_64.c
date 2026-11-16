@@ -154,7 +154,7 @@ cpc_instrs(void)
 struct cpc_cycles_instrs
 cpc_cycles_instrs(void)
 {
-	__builtin_ia32_mfence();
+	__asm__ volatile ("mfence" ::: "memory");
 	return cpc_cycles_instrs_spec();
 }
 
@@ -467,7 +467,7 @@ void
 cpc_hw_update(cpc_hw_t __assert_only hw)
 {
 	assert3u(hw, ==, CPC_HW_CPMU);
-	__builtin_ia32_mfence();
+	__asm__ volatile ("mfence" ::: "memory");
 	uint64_t raw_counts[CPMU_PMC_COUNT] = {
 		[CPC_X86_64_PMC_INSTRS] = __builtin_ia32_rdpmc(CPC_X86_64_RDPMC_INSTRS),
 		[CPC_X86_64_PMC_CYCLES] = __builtin_ia32_rdpmc(CPC_X86_64_RDPMC_CYCLES),

@@ -1,0 +1,345 @@
+#!/usr/bin/env python3
+"""Minimal stand-in for Apple's iig (DriverKit interface generator; closed source).
+
+Real iig turns X.iig into X.h and X.iig.cpp:
+  * X.h   = the .iig with class bodies removed, plus per-class macros <Class>_Methods / <Class>_KernelMethods that the kernel's own
+            class definitions expand (OSDeclare...WithDispatch) to pick up the RPC-capable method declarations;
+  * X.iig.cpp = the RPC glue (Dispatch, <Method> stubs, <Method>_Invoke ...).
+This one emits, per class:
+  * for every method in the .iig class body that the kernel header does not already declare: its declaration, and for non-LOCALONLY
+    methods also `<Method>_Impl` (what kernel code implements with IMPL(Class, Method));
+  * a stub Class::Dispatch() (kIOReturnUnsupported), Class::Method() forwarding to Method_Impl(), and a weak default Method_Impl().
+Enough to build the kernel; DriverKit dexts (user-space drivers) will NOT work.
+Kernel headers are located relative to the .iig (../IOKit, ../../libkern/libkern/c++).
+"""
+import glob
+import os
+import re
+import sys
+
+args = sys.argv[1:]
+
+
+def opt(n):
+    return args[args.index(n) + 1] if n in args else None
+
+
+src, hdr, impl = opt('--def'), opt('--header'), opt('--impl')
+txt = open(src, errors='replace').read()
+root = os.path.dirname(os.path.dirname(os.path.abspath(src)))      # .../iokit
+tree = os.path.dirname(root)                                         # xnu source root
+EXTRA = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'iig-extra')
+
+ATTR_WORDS = set('''LOCALONLY LOCAL REMOTE KERNEL NATIVE TARGET REPLY INVOKEREPLY LOCALHOST PORTMAKESEND PORTCOPYSEND
+IIG_SERIALIZABLE IIG_CONCRETE DRIVERKIT_CONSUMED DRIVERKIT_CONSUMES_THIS DRIVERKIT_RETURNS_NOT_RETAINED DRIVERKIT_RETURNS_RETAINED
+DRIVERKIT_RETURNS_RETAINED_ON_NONZERO DRIVERKIT_RETURNS_RETAINED_ON_ZERO LIBKERN_CONSUMED LIBKERN_CONSUMES_THIS
+LIBKERN_RETURNS_NOT_RETAINED LIBKERN_RETURNS_RETAINED LIBKERN_RETURNS_RETAINED_ON_NONZERO LIBKERN_RETURNS_RETAINED_ON_ZERO
+override final'''.split())
+
+
+def extra(c, ext):
+    f = os.path.join(EXTRA, c + '.' + ext)
+    return open(f).read().rstrip('\n') if os.path.exists(f) else ''
+
+
+def strip_comments(t):
+    t = re.sub(r'/\*.*?\*/', ' ', t, flags=re.S)
+    return re.sub(r'//[^\n]*', ' ', t)
+
+
+def match_brace(t, i):
+    """t[i] is just after '{'; return index after the matching '}'."""
+    depth = 1
+    while i < len(t) and depth:
+        depth += (t[i] == '{') - (t[i] == '}')
+        i += 1
+    return i
+
+
+# ---- kernel header text (to avoid re-declaring what the kernel class already declares) -------------------------------------
+_kernel_headers = None
+
+
+def kernel_class_text(cls):
+    global _kernel_headers
+    if _kernel_headers is None:
+        _kernel_headers = []
+        for d in ('iokit/IOKit', 'libkern/libkern/c++', 'libkern/libkern'):
+            for f in glob.glob(os.path.join(tree, d, '*.h')):
+                try:
+                    _kernel_headers.append(strip_comments(open(f, errors='replace').read()))
+                except OSError:
+                    pass
+    for t in _kernel_headers:
+        for m in re.finditer(r'\bclass\s+(?:\w+\s+)*%s\b[^;{]*\{' % re.escape(cls), t):
+            return t[m.end():match_brace(t, m.end())]
+    return ''
+
+
+
+# ---- ground truth: the kernel's own <Method>_Impl definitions -------------------------------------------------------------
+_impls = None
+_direct = set()
+
+
+def kernel_impls():
+    """{(Class, Method): (ret, params)} from every `Class::Method_Impl(...)` / `IMPL(Class, Method)(...)` the kernel defines."""
+    global _impls
+    if _impls is not None:
+        return _impls
+    _impls = {}
+    global _direct
+    _direct = {}
+    files = []
+    for d in ('iokit/Kernel/*.cpp', 'iokit/Kernel/*.h', 'iokit/System/*.h', 'iokit/IOKit/*.h', 'libkern/c++/*.cpp'):
+        files += glob.glob(os.path.join(tree, d))
+    pat = re.compile(r'([\w\*]+)[ \t]*\n?[ \t]*(?:IMPL\(\s*(\w+)\s*,\s*(\w+)\s*\)|(\w+)::(\w+)_Impl)\s*\(')
+    for f in files:
+        try:
+            t = strip_comments(open(f, errors='replace').read())
+        except OSError:
+            continue
+        for m in re.finditer(r'\b(\w+)::(\w+)\s*\(', t):
+            if m.group(2).endswith('_Impl'):
+                continue
+            i, depth = m.end(), 1
+            while i < len(t) and depth:
+                depth += (t[i] == '(') - (t[i] == ')')
+                i += 1
+            if t[i:i + 40].lstrip().startswith('{') or t[i:i + 40].lstrip().startswith(':'):
+                ptxt = t[m.end():i - 1].strip()
+                n = -1 if re.search(r'\w+_Args\b', ptxt) else (0 if ptxt in ('', 'void') else len(split_params(ptxt)))
+                _direct.setdefault((m.group(1), m.group(2)), set()).add(n)
+        for m in pat.finditer(t):
+            cls = m.group(2) or m.group(4)
+            meth = m.group(3) or m.group(5)
+            i, depth = m.end(), 1
+            while i < len(t) and depth:
+                depth += (t[i] == '(') - (t[i] == ')')
+                i += 1
+            tail = t[i:i + 40].lstrip()
+            if not tail.startswith('{') and not tail.startswith(':'):   # only definitions
+                continue
+            params = ' '.join(t[m.end():i - 1].split())
+            _impls.setdefault((cls, meth), (m.group(1), params))
+    return _impls
+
+
+# ---- .iig class parsing ----------------------------------------------------------------------------------------------------
+start_re = re.compile(r'^[ \t]*class\b', re.M)
+classes = []   # (name, body)
+
+
+def strip_classes(t):
+    out, pos = [], 0
+    while True:
+        m = start_re.search(t, pos)
+        if not m:
+            out.append(t[pos:])
+            break
+        k = m.end()
+        while k < len(t) and t[k] not in ';{':
+            k += 1
+        if k >= len(t) or t[k] == ';':            # forward declaration: keep
+            out.append(t[pos:k + 1])
+            pos = k + 1
+            continue
+        raw_head = t[m.end():k]
+        head = re.sub(r'\([^)]*\)', ' ', raw_head).split(':')[0].split()
+        out.append(t[pos:m.start()])
+        end = match_brace(t, k + 1)
+        if head:
+            ext = re.search(r'EXTENDS\s*\(\s*(\w+)\s*\)', raw_head)
+            bm = re.search(r':\s*public\s+(\w+)', raw_head)
+            classes.append((head[-1], t[k + 1:end - 1], bm.group(1) if bm else None, ext.group(1) if ext else None))
+        j = t.find(';', end)
+        pos = j + 1 if j >= 0 else end
+    return ''.join(out)
+
+
+def split_params(p):
+    out, depth, cur = [], 0, ''
+    for ch in p:
+        if ch in '(<[':
+            depth += 1
+        elif ch in ')>]':
+            depth -= 1
+        if ch == ',' and depth == 0:
+            out.append(cur)
+            cur = ''
+        else:
+            cur += ch
+    if cur.strip():
+        out.append(cur)
+    return [x.strip() for x in out]
+
+
+def clean_words(s):
+    s = re.sub(r'\b(QUEUENAME|TYPE|EXTENDS|IIG_\w+)\s*\([^)]*\)', ' ', s)
+    s = re.sub(r'\b(%s)\b' % '|'.join(sorted(ATTR_WORDS, key=len, reverse=True)), ' ', s)
+    return ' '.join(s.split())
+
+
+def parse_methods(body):
+    body = strip_comments(body)
+    body = re.sub(r'^\s*#.*$', ' ', body, flags=re.M)
+    body = re.sub(r'\b(public|private|protected)\s*:', ' ', body)
+    stmts, depth, cur = [], 0, ''
+    for ch in body:
+        if ch in '({':
+            depth += 1
+        elif ch in ')}':
+            depth -= 1
+        if ch == ';' and depth == 0:
+            stmts.append(cur.strip())
+            cur = ''
+        else:
+            cur += ch
+    methods = []
+    for s in stmts:
+        s = ' '.join(s.split())
+        if '(' not in s or re.match(r'(typedef|friend|using|struct|enum|union)\b', s) or '{' in s or 'operator' in s:
+            continue
+        i = s.index('(')
+        depth, j = 0, i
+        for j in range(i, len(s)):
+            depth += (s[j] == '(') - (s[j] == ')')
+            if depth == 0:
+                break
+        params_raw, trailer, prefix = s[i + 1:j], s[j + 1:], s[:i].rstrip()
+        mname = re.search(r'(\w+)$', prefix)
+        if not mname:
+            continue
+        name = mname.group(1)
+        pre = prefix[:mname.start()]
+        full = s
+        local_only = 'LOCALONLY' in full.split() or 'LOCALONLY' in trailer or 'LOCALONLY' in params_raw
+        pre_clean = clean_words(pre)
+        params_clean = clean_words(params_raw)
+        is_static = bool(re.search(r'\bstatic\b', pre_clean))
+        is_virtual = bool(re.search(r'\bvirtual\b', pre_clean))
+        ret = re.sub(r'\b(static|virtual|inline)\b', '', pre_clean).strip()
+        trailer_clean = ' '.join(w for w in clean_words(trailer).split() if w == 'const')
+        plist = [re.sub(r'\*\s*const\s+(\w+)\s*\[[^\]]*\]$', r'** \1', p) for p in split_params(params_clean)]
+        plist = [(q + ' _a%d' % n) if (q.endswith('*') or q.endswith('&') or re.fullmatch(r'(const\s+)?\w+', q)) and q not in ('', 'void') else q
+                 for n, q in enumerate(plist)]
+        params_clean = ', '.join(plist)
+        names, ok = [], True
+        for p in plist:
+            if p in ('', 'void'):
+                continue
+            if any(x in p for x in ('^', '(', '...')):
+                ok = False
+                break
+            mm = re.search(r'(\w+)\s*(?:\[[^\]]*\])?$', p)
+            names.append(mm.group(1) if mm else '_a%d' % len(names))
+        methods.append(dict(pure=bool(re.search(r'=\s*0\s*$', trailer.strip())), is_override=bool(re.search(r'\boverride\b', trailer)), reply=bool(re.search(r'\b(REPLY|INVOKEREPLY)\b', s)), target='TARGET' in params_raw, raw_params=params_raw, name=name, ret=ret, params=params_clean, names=names, static=is_static, virtual=is_virtual,
+                            local_only=local_only, const=trailer_clean, ok=ok))
+    return methods
+
+
+def default_ret(ret):
+    r = ret.strip()
+    if r == 'void':
+        return ''
+    if 'kern_return_t' in r or 'IOReturn' in r:
+        return 'return kIOReturnUnsupported;'
+    if '*' in r:
+        return 'return nullptr;'
+    if r == 'bool':
+        return 'return false;'
+    return 'return (%s){};' % r if r else ''
+
+
+body = re.sub(r'#\s*include\s*<([^>]*)\.iig>', r'#include <\1.h>', txt)
+body = re.sub(r'#\s*include\s*"([^"]*)\.iig"', r'#include "\1.h"', body)
+body = strip_classes(body)
+
+guard = re.sub(r'\W', '_', os.path.basename(hdr or 'x.h')).upper()
+out = body + '\n/* xcross iig stand-in */\n#ifndef _XCROSS_IIG_%s\n#define _XCROSS_IIG_%s\n' % (guard, guard)
+impl_txt = '/* xcross iig stand-in: stub RPC glue */\n#include <DriverKit/%s>\n#include <IOKit/IOReturn.h>\n#include <IOKit/IOService.h>\n#include <IOKit/IOUserServer.h>\n#include <IOKit/IOUserClient.h>\n#include <IOKit/IOMemoryDescriptor.h>\n#include <IOKit/IOBufferMemoryDescriptor.h>\n#include <IOKit/IODMACommand.h>\n#include <IOKit/IOExtensiblePaniclog.h>\n' % os.path.basename(hdr or '')
+
+macros = {}          # class -> list of macro declaration strings
+args_macros = {}
+done_impl = set()
+class_decls = ''     # full class declarations for DriverKit-native classes
+order = []
+for cname, cbody, cbase, cext in classes:
+    ktext = kernel_class_text(cname)
+    native = not ktext and not cext
+    target = cext or cname          # EXTENDS classes contribute their methods to the extended class
+    decls, stubs = macros.setdefault(target, []), []
+    if target not in order:
+        order.append(target)
+    for m in parse_methods(cbody):
+        kdecl = (not native and not cext and bool(re.search(r'\b%s\s*\(' % re.escape(m['name']), ktext)))
+        kimpl = bool(ktext) and bool(re.search(r'\b%s_Impl\s*\(' % re.escape(m['name']), ktext))
+        cq = ('static ' if m['static'] else '')
+        cst = (' ' + m['const']) if m['const'] else ''
+        if m['name'] in ('init', 'free') and not native:
+            continue
+        # <Class>_<Method>_Args: the parameter list as a macro (kernel code defines Class::Method(Class_Method_Args))
+        args_macros.setdefault(target, []).append('#define %s_%s_Args %s\n' % (target, m['name'], m['params'] or 'void'))
+        if m['reply']:
+            rp = 'const IORPC rpc' + (', ' + m['params'] if m['params'] else '')
+            decls.append('virtual kern_return_t %s(%s);' % (m['name'], rp))
+            stubs.append('kern_return_t %s::%s(%s) { return kIOReturnUnsupported; }' % (target, m['name'], rp))
+        if not native and not kdecl:
+            decls.append('%s%s %s(%s)%s;' % (cq, m['ret'], m['name'], m['params'], cst))   # NOT virtual: Apple's kernel classes expose these as plain wrappers (stock IOUserClient vtable has ~300 slots, not ~348)
+        if m['target']:   # iig generates CreateAction<Method>(referenceSize, &action) for methods with a TARGET parameter
+            decls.append('kern_return_t CreateAction%s(size_t referenceSize, OSAction ** action);' % m['name'])
+            stubs.append('kern_return_t %s::CreateAction%s(size_t referenceSize, OSAction ** action) { return kIOReturnUnsupported; }' % (target, m['name']))
+        kernel_impls()      # populates _direct
+        _nargs = len([x for x in split_params(m['params']) if x not in ('', 'void')])
+        _dc = _direct.get((target, m['name']), set())
+        kdirect = (-1 in _dc) or (_nargs in _dc)
+        if m['local_only'] and m['ok'] and not m['pure'] and not kdirect and not kdecl and not native and m['name'] not in ('init', 'free'):
+            stubs.append('__attribute__((weak)) %s %s::%s(%s)%s { %s }' % (m['ret'], target, m['name'], m['params'], cst, default_ret(m['ret'])))
+        if m['local_only'] or m['name'] in ('init', 'free') or kdirect:
+            continue
+        kfound = kernel_impls().get((target, m['name']) if not cext else (target, m['name']))
+        iparams = kfound[1] if kfound else m['params']
+        has_rpc = bool(kfound) and iparams.startswith('const IORPC rpc')
+        inames = (['IORPC()'] + m['names']) if has_rpc else m['names']
+        done_impl.add((target, m['name']))
+        if not kimpl:
+            decls.append('%s%s %s_Impl(%s)%s;' % (cq, kfound[0] if kfound else m['ret'], m['name'], iparams, cst))
+        if m['ok'] and not kdecl:
+            call = '%s_Impl(%s)' % (m['name'], ', '.join(inames))
+            stubs.append('%s %s::%s(%s)%s { %s%s; }' % (m['ret'], target, m['name'], m['params'], cst,
+                         '' if m['ret'] == 'void' else 'return ', call))
+        if m['ok'] and not kimpl and not kfound:
+            stubs.append('__attribute__((weak)) %s %s::%s_Impl(%s)%s { %s }' % (m['ret'], target, m['name'], iparams, cst,
+                         default_ret(m['ret'])))
+    for (kc, km), (kret, kparams) in kernel_impls().items():
+        if kc == target and (kc, km) not in done_impl:
+            done_impl.add((kc, km))
+            decls.append('%s %s_Impl(%s);' % (kret, km, kparams))
+    if native:
+        abstract = bool(re.search(r'=\s*0\s*;', cbody))
+        base = cbase or 'OSObject'
+        class_decls += 'struct %s_IVars;\n#ifndef %s_Methods\n#define %s_Methods\n#endif\n' % (cname, cname, cname)
+        # LOCALHOST/LOCALONLY methods are not RPC entry points: Apple's kernel classes give them no vtable slot (stock OSAction vtable has no Aborted)
+        cbody = re.sub(r'\bvirtual\b(?=[^;{}]*\b(?:LOCALHOST|LOCALONLY)\b[^;{}]*;)', ' ', cbody)
+        cbody = re.sub(r'\b(QUEUENAME|TYPE|EXTENDS)\s*\([^)]*\)', ' ', cbody)
+        cbody = re.sub(r'\b(%s)\b' % '|'.join(sorted(ATTR_WORDS - {'override', 'final'}, key=len, reverse=True)), ' ', cbody)
+        class_decls += 'class %s : public %s\n{\n\tOSDeclare%sStructorsWithDispatch(%s);\n\ttypedef %s super;\n%s\n\tpublic:\n\t%s_IVars * ivars;\n};\n' % (
+            cname, base, 'Abstract' if abstract else 'Default', cname, base, cbody, cname)
+        impl_txt += 'OSDefineMetaClassAndAbstractStructors(%s, %s)\n' % (cname, base) if abstract else \
+            'OSDefineMetaClassAndStructors(%s, %s)\n' % (cname, base)
+        impl_txt += 'kern_return_t %s::MetaClass::Dispatch(const IORPC rpc) { return kIOReturnUnsupported; }\n' % cname
+    elif 'WithDispatch' in ktext and not cext:
+        impl_txt += 'kern_return_t %s::MetaClass::Dispatch(const IORPC rpc) { return kIOReturnUnsupported; }\n' % cname
+    impl_txt += '\n'.join(dict.fromkeys(stubs)) + '\n' + extra(cname, 'impl') + '\n'
+for c in order:
+    ex = extra(c, 'methods')
+    macro = ('public: ' + ' '.join(dict.fromkeys(macros[c])) if macros[c] else '') + (' ' + ' '.join(ex.split('\n')) if ex else '')
+    out += '#ifndef %s_Methods\n#define %s_Methods %s\n#endif\n#ifndef %s_KernelMethods\n#define %s_KernelMethods\n#endif\n' % (
+        c, c, macro, c, c)
+for c in order:
+    out += ''.join(args_macros.get(c, []))
+out += class_decls + '#endif\n'
+if hdr:
+    open(hdr, 'w').write(out)
+if impl:
+    open(impl, 'w').write(impl_txt)

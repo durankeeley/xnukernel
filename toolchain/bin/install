@@ -1,0 +1,9 @@
+#!/bin/sh
+# BSD install(1) flags on top of GNU install: -S ("safe copy") is the default
+# behaviour here, and GNU would treat it as --suffix and eat the next option.
+for a in "$@"; do
+	shift
+	[ "$a" = -S ] && continue
+	set -- "$@" "$a"
+done
+exec /usr/bin/install "$@"

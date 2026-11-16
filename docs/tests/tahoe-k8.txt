@@ -1,0 +1,15 @@
+# Tahoe on k8 (2026-11-16)
+qemu cpu: Opteron_G2,vendor=AuthenticAMD,kvm=off
+ProductName:		macOS
+ProductVersion:		26.7.3
+BuildVersion:		25G342
+Darwin XNUs-iMac.local 25.5.0 Darwin Kernel Version 25.5.0: Mon 16 Nov 2026 13:40:35 NZDT; durankeeley:xnu_development-xcross-k8/DEVELOPMENT_X86_64 x86_64
+machdep.cpu.brand_string: AMD Opteron 22xx (Gen 2 Class Opteron)
+machdep.cpu.vendor: AuthenticAMD
+machdep.cpu.family: 15
+machdep.cpu.model: 6
+machdep.cpu.features: FPU VME DE PSE TSC MSR PAE MCE CX8 APIC SEP MTRR PGE MCA CMOV PAT PSE36 CLFSH MMX FXSR SSE SSE2 HTT SSE3 CX16 x2APIC VMM
+hw.cpusubtype: 8
+hw.ncpu: 4
+19:09  up  1:38, 1 user, load averages: 332.62 293.54 164.57
+[exit 0]

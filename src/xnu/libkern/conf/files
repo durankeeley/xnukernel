@@ -16,6 +16,8 @@ libkern/gen/OSAtomicOperations.c			standard
 libkern/gen/OSSpinLock.c				standard
 libkern/gen/OSDebug.cpp					standard
 
+libkern/xcross_tahoe_stubs.c				standard
+libkern/xcross_iig_abi.c				standard
 libkern/c++/OSMetaClass.cpp				optional libkerncpp
 libkern/c++/OSObject.cpp				optional libkerncpp
 

@@ -49,6 +49,7 @@
 
 #define CPUID_VID_INTEL         "GenuineIntel"
 #define CPUID_VID_AMD           "AuthenticAMD"
+#define CPUID_VID_AMD           "AuthenticAMD"
 
 #define CPUID_VMM_ID_VMWARE     "VMwareVMware"
 #define CPUID_VMM_ID_PARALLELS  "Parallels\0\0\0"
@@ -580,6 +581,7 @@ extern uint64_t         cpuid_extfeatures(void);
 extern uint64_t         cpuid_leaf7_features(void);
 extern uint64_t         cpuid_leaf7_extfeatures(void);
 extern uint32_t         cpuid_family(void);
+extern boolean_t        cpuid_vendor_is_amd(void);   /* xcross: AMD K8/K10 support */
 extern uint32_t         cpuid_cpufamily(void);
 
 extern i386_cpu_info_t  *cpuid_info(void);

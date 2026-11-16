@@ -156,6 +156,8 @@ struct machine_thread {
 #endif
 	x86_lbrs_t              lbrs;
 	bool                    insn_copy_optout;
+	/* xcross: OPEMU AVX emulation - upper 128 bits of YMM0-15 (index 0: user code, 1: kernel code) */
+	uint8_t                 opemu_ymmh[2][256];
 };
 typedef struct machine_thread *pcb_t;
 
