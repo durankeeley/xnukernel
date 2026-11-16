@@ -60,12 +60,15 @@ uint32_t	pmap_pcid_ncpus;
 boolean_t 	pmap_pcid_disabled = FALSE;
 pcid_cdata_t pcid_data[MAX_CPUS] __attribute__((aligned(64)));
 
+extern void xcross_share_user_cr3(void);
+
 void	pmap_pcid_configure(void) {
 	int ccpu = cpu_number();
 	uintptr_t cr4 = get_cr4();
 	boolean_t pcid_present = FALSE;
 
 	pmap_pcid_log("PCID configure invoked on CPU %d\n", ccpu);
+	xcross_share_user_cr3();	/* once, on the boot CPU, before any other CPU runs */
 	pmap_assert(ml_get_interrupts_enabled() == FALSE || get_preemption_level() !=0);
 	pmap_assert(cpu_mode_is64bit());
 

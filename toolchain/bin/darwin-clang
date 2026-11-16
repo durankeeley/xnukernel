@@ -1,0 +1,16 @@
+#!/bin/sh
+# clang as a macOS 10.13 (Darwin 17) cross compiler; links with LLVM's ld64.lld unless XCROSS_LD is set
+# (then Apple's ld64). Diagnostics that became errors after Apple clang 9 (Xcode 9, what xnu-4570
+# was built with) are turned back into warnings.
+if [ -n "$XCROSS_LD" ]; then L="--ld-path=$XCROSS_LD -Wl,-lto_library,${XCROSS_LTO:-/usr/lib/libLTO.so} -Wl,-export_dynamic"; else L="-fuse-ld=lld"; fi
+[ -n "$XCROSS_MARCH" ] && M="-march=$XCROSS_MARCH"   # e.g. k8-sse3 for an AM2/AM3 baseline kernel
+TGT=x86_64-apple-darwin17
+if [ -n "${XCROSS_SDKVER:-}" ] && [ "$XCROSS_SDKVER" != "10.13" ]; then   # Tahoe tree
+	TGT=x86_64-apple-darwin25
+	TR=$(cd "$(dirname "$0")/.." && pwd)
+	TC="-include $TR/host-shim/xcross_tahoe_compat.h -isystem $TR/tahoe-stubs -DOS_FIREHOSE_SPI=1"
+fi
+exec clang --target=$TGT $TC -mno-implicit-float $M $L -Wno-unused-command-line-argument \
+	-Wno-error=implicit-function-declaration -Wno-error=implicit-int \
+	-Wno-error=incompatible-pointer-types -Wno-error=int-conversion \
+	-Wno-error=incompatible-function-pointer-types "$@" -Wno-error

@@ -1,0 +1,3 @@
+#!/bin/bash
+# isa-scan.sh <kernel>   Count instructions beyond a K8+SSE3 baseline (SSSE3, SSE4.1/4.2, POPCNT, AES, AVX...) in the kernel text.
+llvm-objdump -d --no-show-raw-insn "$1" 2>/dev/null | awk '{print $2}' | grep -E '^(pshufb|palignr|pabs[bwd]|phadd|phsub|psign|pmaddubsw|pmulhrsw|pextr[bdqw]|pinsr[bdq]|extractps|insertps|ptest|pmin[us][bdw]|pmax[us][bdw]|pmulld|pmuldq|pblend|blendv|blendp|blendvp|pcmpeqq|pcmpgtq|pcmpestr|pcmpistr|packusdw|pmovsx|pmovzx|roundp|rounds|dpp|mpsadbw|phminposuw|popcnt|crc32|movbe|aes|pclmul|vzeroupper|vmov|vp|xsave|xgetbv|rdrand|rdseed|lzcnt|tzcnt|bextr|bzhi|andn)' | sort | uniq -c | sort -rn

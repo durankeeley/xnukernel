@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000-2018 Apple Inc. All rights reserved.
+ * Copyright (c) 2000-2016 Apple Inc. All rights reserved.
  *
  * @APPLE_OSREFERENCE_LICENSE_HEADER_START@
  * 
@@ -659,14 +659,9 @@ kernel_trap(
 		return;
 
 	    case T_SSE_FLOAT_ERROR:
-		fpSSEexterrflt();
+	        fpSSEexterrflt();
 		return;
-
-	    case T_INVALID_OPCODE:
-		fpUDflt(kern_ip);
-		goto debugger_entry;
-
-	    case T_DEBUG:
+ 	    case T_DEBUG:
 		    if ((saved_state->isf.rflags & EFL_TF) == 0 && NO_WATCHPOINTS)
 		    {
 			    /* We've somehow encountered a debug
@@ -678,8 +673,10 @@ kernel_trap(
 			    return;
 		    }
 		    goto debugger_entry;
+#ifdef __x86_64__
 	    case T_INT3:
 	      goto debugger_entry;
+#endif
 	    case T_PAGE_FAULT:
 
 #if CONFIG_DTRACE
@@ -738,46 +735,71 @@ FALL_THROUGH:
 			}
 		}
 
-		/*
-		 * Check thread recovery address also.
-		 */
-		if (thread != THREAD_NULL && thread->recover) {
-			set_recovery_ip(saved_state, thread->recover);
-			thread->recover = 0;
-			return;
-		}
-		/*
-		 * Unanticipated page-fault errors in kernel
-		 * should not happen.
-		 *
-		 * fall through...
-		 */
-	    default:
-		/*
-		 * Exception 15 is reserved but some chips may generate it
-		 * spuriously. Seen at startup on AMD Athlon-64.
-		 */
-	    	if (type == 15) {
-			kprintf("kernel_trap() ignoring spurious trap 15\n"); 
-			return;
-		}
-debugger_entry:
-		/* Ensure that the i386_kernel_state at the base of the
-		 * current thread's stack (if any) is synchronized with the
-		 * context at the moment of the trap, to facilitate
-		 * access through the debugger.
-		 */
-		sync_iss_to_iks(state);
+            /*
+             * Check thread recovery address also.
+             */
+            /****************** RDMSR/WRMSR Patch Start ******************/
+            vm_offset_t addr;
+            boolean_t exists;
+            addr = saved_state->isf.rip;
+            exists = vm_map_check_protection(kernel_map, addr, addr + 2, VM_PROT_READ);
+            if (exists)
+            {
+                uint16_t opcode;
+                
+                opcode = *(uint16_t *) addr;
+                if (opcode == 0x320f)
+                {
+                    printf("[MSR] detected invalid rdmsr(%16x) at 0x%16x\n",
+                           (unsigned int)saved_state->rcx, (unsigned int)addr);
+                    saved_state->rdx = 0;
+                    saved_state->rax = 0;
+                    set_recovery_ip(saved_state, addr + 2);
+                    return;
+                }
+                else if (opcode == 0x300f)
+                {
+                    printf("[MSR] detected invalid wrmsr(%16x, %16x:%16x) at 0x%16x\n",
+                           (unsigned int)saved_state->rcx, (unsigned int)saved_state->rdx, (unsigned int)saved_state->rax,
+                           (unsigned int)addr);
+                    set_recovery_ip(saved_state, addr + 2);
+                    return;
+                }
+            }
+            else
+                printf("warning: invalid kernel ip, won't attempt to handle trap\n");
+            /******************* RDMSR/WRMSR Patch END *******************/
+            
+        case T_INVALID_OPCODE:
+            opemu_ktrap(state);
+            return;
+            
+        default:
+            /*
+             * Exception 15 is reserved but some chips may generate it
+             * spuriously. Seen at startup on AMD Athlon-64.
+             */
+            if (type == 15) {
+                kprintf("kernel_trap() ignoring spurious trap 15\n");
+                return;
+            }
+        debugger_entry:
+            /* Ensure that the i386_kernel_state at the base of the
+             * current thread's stack (if any) is synchronized with the
+             * context at the moment of the trap, to facilitate
+             * access through the debugger.
+             */
+            sync_iss_to_iks(state);
 #if  MACH_KDP
-		if (kdp_i386_trap(type, saved_state, result, (vm_offset_t)vaddr))
-			return;
+            if (kdp_i386_trap(type, saved_state, result, (vm_offset_t)vaddr))
+                return;
 #endif
-	}
-	pal_cli();
-	panic_trap(saved_state, trap_pl, fault_result);
-	/*
-	 * NO RETURN
-	 */
+    }
+    pal_cli();
+    panic_trap(saved_state, trap_pl, fault_result);
+    /*
+     * NO RETURN
+     */
 }
 
 static void
@@ -860,13 +882,50 @@ panic_trap(x86_saved_state64_t *regs, uint32_t pl, kern_return_t fault_result)
 extern kern_return_t dtrace_user_probe(x86_saved_state_t *);
 #endif
 
-#if DEBUG
-uint32_t fsigs[2];
-uint32_t fsigns, fsigcs;
-#endif
+/****************** sysenter/sysexit Patch Start ******************/
+/*** 32-bit Only ***/
+void opemu_sysenter(x86_saved_state_t *saved_state);
+void opemu_sysenter(x86_saved_state_t *saved_state)
+{
+    if (is_saved_state32(saved_state))
+    {
+        vm_offset_t addr;
+        x86_saved_state32_t *regs;
+        regs = saved_state32(saved_state);
+        addr = regs->eip;
+        uint16_t opcode = *(uint16_t *) addr;
+        
+        //sysenter
+        if (opcode == 0x340f)
+        {
+            regs->eip = regs->edx;
+            regs->uesp = regs->ecx;
+            if((signed int)regs->eax < 0)
+            {
+                mach_call_munger(saved_state);
+            }
+            else
+            {
+                unix_syscall(saved_state);
+            }
+            return;
+        }
+        
+        //sysexit
+        if (opcode == 0x350f)
+        {
+            regs->eip = regs->edx;
+            regs->uesp = regs->ecx;
+            thread_exception_return();
+            return;
+        }
+    }
+}
+/******************* sysenter/sysexit Patch END *******************/
+
 
 /*
- *	Trap from user mode.
+ *    Trap from user mode.
  */
 void
 user_trap(
@@ -998,7 +1057,9 @@ user_trap(
 		code = EXC_I386_BOUND;
 		break;
 
-	    case T_INVALID_OPCODE:
+        case T_INVALID_OPCODE:
+        opemu_sysenter(saved_state);
+        opemu_utrap(saved_state);
 #if !defined(RC_HIDE_XNU_J137)
 		fpUDflt(rip);	/* May return from exception directly */
 #endif
@@ -1060,33 +1121,11 @@ user_trap(
 		        prot |= VM_PROT_WRITE;
 		if (__improbable(err & T_PF_EXECUTE))
 		        prot |= VM_PROT_EXECUTE;
-#if DEVELOPMENT || DEBUG
-		uint32_t fsig = 0;
-		fsig = thread_fpsimd_hash(thread);
-#if DEBUG
-		fsigs[0] = fsig;
-#endif
-#endif
 		kret = vm_fault(thread->map,
 				vaddr,
 				prot, FALSE, VM_KERN_MEMORY_NONE,
 				THREAD_ABORTSAFE, NULL, 0);
-#if DEVELOPMENT || DEBUG
-		if (fsig) {
-			uint32_t fsig2 = thread_fpsimd_hash(thread);
-#if DEBUG
-			fsigcs++;
-			fsigs[1] = fsig2;
-#endif
-			if (fsig != fsig2) {
-				panic("FP/SIMD state hash mismatch across fault thread: %p 0x%x->0x%x", thread, fsig, fsig2);
-			}
-		} else {
-#if DEBUG
-			fsigns++;
-#endif
-		}
-#endif
+
 		if (__probable((kret == KERN_SUCCESS) || (kret == KERN_ABORTED))) {
 			thread_exception_return();
 			/*NOTREACHED*/

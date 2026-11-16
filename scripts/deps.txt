@@ -1,0 +1,9 @@
+# name  url  commit   (scripts/fetch-deps.sh clones these into src/). Same list in every branch, only the pinned versions differ.
+AvailabilityVersions  https://github.com/apple-oss-distributions/AvailabilityVersions.git      bd45d997a663175ed9c335a3ab61d6fa89907cfb  # AvailabilityVersions-32.60.1
+CarbonHeaders         https://github.com/apple-oss-distributions/CarbonHeaders.git             214a9ae7ab3c0c78ddb50328ca226e6313c4c782  # CarbonHeaders-18.1 (fetched, not used by the build yet)
+bootstrap_cmds        https://github.com/apple-oss-distributions/bootstrap_cmds.git            e6c167462b049415aecc67533e0e37a8de4b9508  # bootstrap_cmds-98 (MIG)
+cctools-port          https://github.com/tpoechtrager/cctools-port.git                         ef969083aecf77dee1814d6961a06b88af23edef  # ld64 957.1, cctools 1035.1.102
+dtrace                https://github.com/apple-oss-distributions/dtrace.git                    74452fe59415f004fc42e223070b704241b3f124  # dtrace-262.50.12 (CTF tools, fetched, not used by the build yet)
+libdispatch           https://github.com/apple-oss-distributions/libdispatch.git               a2b7cb29e20128002bc5478ea0bf715357409e14  # libdispatch-913.60.2 (firehose)
+libplatform           https://github.com/apple-oss-distributions/libplatform.git               67b7698f05efea3f3cbffaec8da0025da3cb8713  # libplatform-161.50.1
+tcsh                  https://github.com/tcsh-org/tcsh.git                                     f773aba56aa128a38712987b1b8bdbc393d1e4d0  # TCSH6_24_16

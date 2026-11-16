@@ -352,7 +352,8 @@ _vm_object_allocate(
 		"vm_object_allocate, object 0x%X size 0x%X\n",
 		object, size, 0,0,0);
 
-	*object = vm_object_template;
+	/* struct has a const member: copy the template bytewise */
+	memcpy(object, &vm_object_template, sizeof(*object));
 	vm_page_queue_init(&object->memq);
 #if UPL_DEBUG || CONFIG_IOSCHED
 	queue_init(&object->uplq);

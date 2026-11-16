@@ -338,12 +338,18 @@ commpage_init_cpu_capabilities( void )
 	}
 
 #endif /* not RC_HIDE_XNU_J137 */
-	uint64_t misc_enable = rdmsr64(MSR_IA32_MISC_ENABLE);
-	setif(bits, kHasENFSTRG, (misc_enable & 1ULL) &&
-				 (cpuid_leaf7_features() &
-					CPUID_LEAF7_FEATURE_ERMS));
-	
-	_cpu_capabilities = bits;		// set kernel version for use by drivers etc
+    uint64_t misc_enable = 0;
+    
+    if (IsIntelCPU())
+    {
+        misc_enable = rdmsr64(MSR_IA32_MISC_ENABLE);
+    }
+    
+    setif(bits, kHasENFSTRG, (misc_enable & 1ULL) &&
+          (cpuid_leaf7_features() &
+           CPUID_LEAF7_FEATURE_ERMS));
+    
+    _cpu_capabilities = bits;        // set kernel version for use by drivers etc
 }
 
 /* initialize the approx_time_supported flag and set the approx time to 0.
@@ -444,6 +450,13 @@ commpage_populate_one(
 
 	next = 0;
 	commPagePtr = (char *)commpage_allocate( submap, (vm_size_t) area_used, uperm );
+	/*
+	 * xcross: touch every page BEFORE publishing the pointer. thread_quantum_expire() (timer interrupt) writes to the
+	 * commpage as soon as commPagePtr32/64 is non-NULL; if the page has not been faulted in yet, that interrupt takes a page
+	 * fault whose handler blocks, which panics ("thread_invoke: preemption_level 1 ... within interrupt context").
+	 * Practically unreachable on fast CPUs, easy to hit when the guest runs slowly (QEMU TCG).
+	 */
+	bzero(commPagePtr, area_used);
 	*kernAddressPtr = commPagePtr;				// save address either in commPagePtr32 or 64
 	commPageBaseOffset = base_offset;
 

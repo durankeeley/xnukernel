@@ -1,0 +1,39 @@
+# High Sierra installed disk, AMD K8 (Opteron_G2) QEMU model, our kernel (2026-11-16)
+== kernel
+kern.version: Darwin Kernel Version 17.7.0: Mon 16 Nov 2026 23:08:29 NZDT; xnu-4570.71.2.AMD:obj/RELEASE_X86_64
+kern.osproductversion: 10.13.6
+kern.bootargs: -v keepsyms=1 kcsuffix=xcross
+kernel files:
+/System/Library/Kernels:
+kernel
+kernel.xcross
+/System/Library/PrelinkedKernels:
+immutablekernel
+immutablekernel.j137ap.im4m
+prelinkedkernel
+prelinkedkernel.xcross
+== processor
+machdep.cpu.brand_string: AMD Opteron 22xx (Gen 2 Class Opteron)
+machdep.cpu.vendor: AuthenticAMD
+machdep.cpu.family: 15
+machdep.cpu.model: 6
+machdep.cpu.stepping: 1
+hw.physicalcpu: 4
+hw.logicalcpu: 4
+hw.cputype: 7
+hw.cpusubtype: 4
+== capabilities as the kernel reports them (CPUID features, then what userland sees in hw.optional)
+machdep.cpu.features: FPU VME DE PSE TSC MSR PAE MCE CX8 APIC SEP MTRR PGE MCA CMOV PAT PSE36 CLFSH MMX FXSR SSE SSE2 HTT SSE3 CX16 x2APIC VMM
+machdep.cpu.extfeatures: SYSCALL EM64T LAHF TSCI
+hw.optional.sse3: 1
+hw.optional.supplementalsse3: 0
+hw.optional.sse4_1: 0
+hw.optional.sse4_2: 0
+hw.optional.aes: 0
+hw.optional.avx1_0: 0
+hw.optional.avx2_0: 0
+hw.optional.x86_64: 1
+hw.cpufrequency: 2110000000
+hw.busfrequency: 2108000000
+hw.tbfrequency: 1000000000
+[exit 0]

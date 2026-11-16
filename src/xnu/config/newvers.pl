@@ -15,6 +15,7 @@
 #   ###KERNEL_VERSION_STAGE###              VERSION_STAGE_BETA	(see libkern/version.h)
 #   ###KERNEL_VERSION_PRERELEASE_LEVEL###   4
 #   ###KERNEL_BUILDER###                    root
+#   ###KERNEL_SOURCE_VERSION###             xnu-4570.71.2.AMD (from config/SourceVersion)
 #   ###KERNEL_BUILD_OBJROOT###              xnu/xnu-690.obj~2/RELEASE_PPC
 #   ###KERNEL_BUILD_DATE###                 Sun Oct 24 05:33:28 PDT 2004
 
@@ -58,6 +59,12 @@ my $BUILD_DATE = `date`;
 $BUILD_DATE =~ s/[\n\t]//g;
 my $BUILDER=`whoami`;
 $BUILDER =~ s/[\n\t]//g;
+# xcross: ###KERNEL_SOURCE_VERSION### comes from config/SourceVersion (e.g. xnu-4570.71.2.AMD), "unknown" if absent
+my $SOURCE_VERSION = "unknown";
+if (open(my $sv, "<", ($ENV{'SRCROOT'} || ".") . "/config/SourceVersion")) {
+  $SOURCE_VERSION = <$sv>; close($sv);
+  $SOURCE_VERSION =~ s/[\n\t\r]//g;
+}
 my $RC_STRING = $ENV{'RC_ProjectNameAndSourceVersion'} . "~" . $ENV{'RC_ProjectBuildVersion'} if defined($ENV{'RC_XBS'});
 
 # Handle four scenarios:
@@ -167,6 +174,7 @@ foreach $file (@ARGV) {
   $count += $data =~ s/###KERNEL_VERSION_STAGE###/$VERSION_STAGE/g;
   $count += $data =~ s/###KERNEL_VERSION_PRERELEASE_LEVEL###/$VERSION_PRERELEASE_LEVEL/g;
   $count += $data =~ s/###KERNEL_BUILDER###/$BUILDER/g;
+  $count += $data =~ s/###KERNEL_SOURCE_VERSION###/$SOURCE_VERSION/g;
   $count += $data =~ s/###KERNEL_BUILD_OBJROOT###/$BUILD_OBJROOT/g;
   $count += $data =~ s/###KERNEL_BUILD_DATE###/$BUILD_DATE/g;
   print " $count replacements\n";

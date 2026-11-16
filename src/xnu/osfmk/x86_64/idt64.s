@@ -396,6 +396,9 @@ L_dispatch:
      	mov	16(%rax), %rax
 
 	mov	%gs:CPU_TASK_CR3(%rax), %rax 
+	/* xcross: patched to a NOP at boot when user and kernel share one address space (see xcross_cr3.c) */
+	.globl	EXT(xcross_cr3_entry)
+EXT(xcross_cr3_entry):
 	mov	%rax, %cr3
 #if	DEBUG
 	mov	%rax, %gs:CPU_ENTRY_CR3
@@ -440,6 +443,9 @@ Entry(ks_64bit_return)
 #if	DEBUG
 	mov	%rax, %gs:CPU_EXIT_CR3
 #endif
+	/* xcross: patched to a NOP at boot when user and kernel share one address space (see xcross_cr3.c) */
+	.globl	EXT(xcross_cr3_exit)
+EXT(xcross_cr3_exit):
 	mov	%rax, %cr3
 	/* Continue execution on the shared/doublemapped trampoline */
 	pop	%rax
@@ -517,8 +523,8 @@ L_dispatch_64bit:
 	/*
 	 * Save segment regs - for completeness since theyre not used.
 	 */
-	movl	%fs, R64_FS(%r15)
-	movl	%gs, R64_GS(%r15)
+	movw	%fs, R64_FS(%r15)
+	movw	%gs, R64_GS(%r15)
 
 	/* Save general-purpose registers */
 	mov	%rax, R64_RAX(%r15)
@@ -582,10 +588,10 @@ L_dispatch_U32: /* 32-bit user task */
 	/*
 	 * Save segment regs
 	 */
-	movl	%ds, R32_DS(%r15)
-	movl	%es, R32_ES(%r15)
-	movl	%fs, R32_FS(%r15)
-	movl	%gs, R32_GS(%r15)
+	movw	%ds, R32_DS(%r15)
+	movw	%es, R32_ES(%r15)
+	movw	%fs, R32_FS(%r15)
+	movw	%gs, R32_GS(%r15)
 
 	/*
 	 * Save general 32-bit registers

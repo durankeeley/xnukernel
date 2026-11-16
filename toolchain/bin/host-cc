@@ -1,0 +1,17 @@
+#!/bin/bash
+# Host compiler for XNU's build-time tools (SETUP/*): drop the macOS-only
+# flags and add the Darwin compatibility headers.
+T=$(cd "$(dirname "$0")/.." && pwd)
+W=$(dirname "$T")
+args=()
+skip=0
+for a in "$@"; do
+	if [ $skip = 1 ]; then skip=0; continue; fi
+	case $a in
+	-isysroot) skip=1 ;;
+	-mmacosx-version-min=*|-mmacos-version-min=*) ;;
+	*) args+=("$a") ;;
+	esac
+done
+exec clang -w -Wno-unused-command-line-argument -include "$T/host-compat/darwin-compat.h" -I"$T/host-compat" -I"$T/host-shim" \
+	-idirafter "$W/src/xnu/EXTERNAL_HEADERS" -idirafter "$W/src/xnu/osfmk" -idirafter "$W/src/xnu/libkern" "${args[@]}" -lbsd

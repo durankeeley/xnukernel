@@ -1,0 +1,40 @@
+# High Sierra, stripped kernel on a K10 model (2026-11-17)
+qemu cpu: phenom,family=16,model=4,stepping=2,vendor=AuthenticAMD,kvm=off
+kernel.xcross: stripped with Apple's strip (build/xnu-k8, XCROSS_MARCH=k8-sse3), prelinkedkernel.xcross built around it with kextcache
+-rwxr-xr-x  1 root  wheel  12957248 Dec 21  2018 /System/Library/Kernels/kernel.xcross
+-rw-r--r--  1 root  wheel   8351908 Nov 16 02:20 /System/Library/PrelinkedKernels/prelinkedkernel.xcross
+== kernel
+kern.version: Darwin Kernel Version 17.7.0: Mon 16 Nov 2026 23:08:29 NZDT; xnu-4570.71.2.AMD:obj/RELEASE_X86_64
+kern.osproductversion: 10.13.6
+kern.bootargs: -v keepsyms=1 kcsuffix=xcross
+kernel files:
+/System/Library/Kernels:
+kernel
+kernel.xcross
+/System/Library/PrelinkedKernels:
+immutablekernel
+immutablekernel.j137ap.im4m
+prelinkedkernel
+prelinkedkernel.xcross
+== processor
+machdep.cpu.brand_string: AMD Phenom(tm) 9550 Quad-Core Processor
+machdep.cpu.vendor: AuthenticAMD
+machdep.cpu.family: 16
+machdep.cpu.model: 4
+machdep.cpu.stepping: 2
+hw.physicalcpu: 4
+hw.logicalcpu: 4
+hw.cputype: 7
+hw.cpusubtype: 4
+== capabilities as the kernel reports them (CPUID features, then what userland sees in hw.optional)
+machdep.cpu.features: FPU VME DE PSE TSC MSR PAE MCE CX8 APIC SEP MTRR PGE MCA CMOV PAT PSE36 CLFSH MMX FXSR SSE SSE2 HTT SSE3 CX16 x2APIC POPCNT VMM
+machdep.cpu.extfeatures: SYSCALL 1GBPAGE EM64T LAHF LZCNT RDTSCP TSCI
+hw.optional.sse3: 1
+hw.optional.supplementalsse3: 0
+hw.optional.sse4_1: 0
+hw.optional.sse4_2: 0
+hw.optional.aes: 0
+hw.optional.avx1_0: 0
+hw.optional.avx2_0: 0
+hw.optional.x86_64: 1
+[exit 0]
